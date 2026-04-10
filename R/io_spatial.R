@@ -17,17 +17,5 @@ read_farm_polygon <- function(path, target_crs = "EPSG:4326") {
 
   farm <- terra::project(farm, target_crs)
 
-  required_columns <- c("GROWER", "FARM", "FIELD", "ID")
-  missing_columns <- required_columns[!required_columns %in% names(farm)]
-  if (length(missing_columns) > 0) {
-    stop(
-      sprintf(
-        "Farm polygon is missing required attributes: %s",
-        paste(missing_columns, collapse = ", ")
-      ),
-      call. = FALSE
-    )
-  }
-
   farm
 }
