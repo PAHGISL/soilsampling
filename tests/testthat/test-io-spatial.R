@@ -1,0 +1,15 @@
+testthat::test_that("read_farm_polygon loads the example polygon in EPSG:4326", {
+  farm <- read_farm_polygon(file.path(repo_root, "inst", "example", "nowley", "Nowley.shp"))
+
+  testthat::expect_s4_class(farm, "SpatVector")
+  testthat::expect_true(grepl("WGS 84", terra::crs(farm)))
+  testthat::expect_true(all(c("GROWER", "FARM", "FIELD", "ID") %in% names(farm)))
+})
+
+testthat::test_that("initialise_run_dirs creates stable output folders", {
+  root <- tempfile("soilsampling-run-")
+  dirs <- initialise_run_dirs(root)
+
+  testthat::expect_true(all(dir.exists(unlist(dirs))))
+  testthat::expect_true(all(c("raw", "processed", "vectors", "tables", "reports") %in% names(dirs)))
+})

@@ -1,0 +1,9 @@
+# Core packages required for authentication and downloads.
+earthengine-api
+requests
+pyyaml
+python-dateutil
+
+# Optional GeoTIFF post-processing packages:
+# rasterio
+# numpy
