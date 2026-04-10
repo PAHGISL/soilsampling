@@ -22,21 +22,73 @@ default_config <- function() {
 }
 
 merge_config <- function(defaults, overrides) {
+  if (is.null(overrides)) {
+    return(defaults)
+  }
+
   utils::modifyList(defaults, overrides, keep.null = TRUE)
 }
 
-normalise_config <- function(cfg, config_path) {
-  config_dir <- dirname(normalizePath(config_path, winslash = "/", mustWork = TRUE))
+is_yaml_config_path <- function(path) {
+  is.character(path) &&
+    length(path) == 1 &&
+    grepl("[.]ya?ml$", path, ignore.case = TRUE)
+}
 
-  if (!grepl("^(/|[A-Za-z]:[/\\\\])", cfg$farm_path)) {
+resolve_existing_input_path <- function(path, repo_root = NULL) {
+  stopifnot(is.character(path), length(path) == 1)
+
+  candidates <- c(path)
+  if (!is.null(repo_root)) {
+    candidates <- c(candidates, file.path(repo_root, path))
+  }
+
+  for (candidate in unique(candidates)) {
+    if (file.exists(candidate)) {
+      return(normalizePath(candidate, winslash = "/", mustWork = TRUE))
+    }
+  }
+
+  stop("Input path does not exist: ", path, call. = FALSE)
+}
+
+sanitize_run_name <- function(path) {
+  run_name <- tools::file_path_sans_ext(basename(path))
+  run_name <- gsub("[^A-Za-z0-9]+", "_", run_name)
+  run_name <- tolower(gsub("(^_+|_+$)", "", run_name))
+
+  if (!nzchar(run_name)) {
+    return("run")
+  }
+
+  run_name
+}
+
+normalise_config_paths <- function(cfg, config_dir = NULL) {
+  if (!is.null(config_dir)) {
+    config_dir <- normalizePath(config_dir, winslash = "/", mustWork = TRUE)
+  }
+
+  if (!is.null(config_dir) && !grepl("^(/|[A-Za-z]:[/\\\\])", cfg$farm_path)) {
     cfg$farm_path <- file.path(config_dir, cfg$farm_path)
   }
-  if (!grepl("^(/|[A-Za-z]:[/\\\\])", cfg$output_dir)) {
+  if (!is.null(config_dir) && !grepl("^(/|[A-Za-z]:[/\\\\])", cfg$output_dir)) {
     cfg$output_dir <- file.path(config_dir, cfg$output_dir)
   }
 
   cfg$farm_path <- normalizePath(cfg$farm_path, winslash = "/", mustWork = FALSE)
   cfg$output_dir <- normalizePath(cfg$output_dir, winslash = "/", mustWork = FALSE)
+
+  cfg
+}
+
+coerce_config_types <- function(cfg) {
+  if (is.null(cfg$pca)) {
+    cfg$pca <- default_config()$pca
+  }
+  if (is.null(cfg$sentinel1)) {
+    cfg$sentinel1 <- default_config()$sentinel1
+  }
 
   cfg$sample_count <- as.integer(cfg$sample_count)
   cfg$cluster_count <- as.integer(cfg$cluster_count)
@@ -48,6 +100,12 @@ normalise_config <- function(cfg, config_path) {
   cfg$sentinel1$enabled <- isTRUE(cfg$sentinel1$enabled)
 
   cfg
+}
+
+finalise_config <- function(cfg, config_dir = NULL) {
+  cfg <- normalise_config_paths(cfg, config_dir = config_dir)
+  cfg <- coerce_config_types(cfg)
+  validate_config(cfg)
 }
 
 validate_config <- function(cfg) {
@@ -85,9 +143,6 @@ validate_config <- function(cfg) {
   if (!isTRUE(cfg$cluster_count > 0L)) {
     stop("cluster_count must be positive.", call. = FALSE)
   }
-  if (!nzchar(cfg$gee_project_id)) {
-    stop("gee_project_id must be provided.", call. = FALSE)
-  }
   if (!isTRUE(cfg$buffer_distance_m >= 0)) {
     stop("buffer_distance_m must be non-negative.", call. = FALSE)
   }
@@ -118,9 +173,81 @@ validate_config <- function(cfg) {
   cfg
 }
 
+require_gee_project_id <- function(cfg) {
+  if (!nzchar(cfg$gee_project_id)) {
+    stop(
+      "gee_project_id is required for download stages. Set GEE_PROJECT_ID or provide it in a YAML config.",
+      call. = FALSE
+    )
+  }
+
+  cfg
+}
+
 load_config <- function(path) {
+  path <- normalizePath(path, winslash = "/", mustWork = TRUE)
   overrides <- yaml::read_yaml(path)
   cfg <- merge_config(default_config(), overrides)
-  cfg <- normalise_config(cfg, path)
-  validate_config(cfg)
+  finalise_config(cfg, config_dir = dirname(path))
+}
+
+build_config_from_farm_path <- function(farm_path, output_root, overrides = NULL) {
+  farm_path <- normalizePath(farm_path, winslash = "/", mustWork = TRUE)
+  output_root <- normalizePath(output_root, winslash = "/", mustWork = FALSE)
+
+  cfg <- merge_config(default_config(), overrides)
+  cfg$farm_path <- farm_path
+  cfg$output_dir <- file.path(output_root, sanitize_run_name(farm_path))
+
+  finalise_config(cfg)
+}
+
+write_pipeline_config <- function(cfg, path) {
+  stopifnot(is.list(cfg), is.character(path), length(path) == 1)
+
+  dir.create(dirname(path), recursive = TRUE, showWarnings = FALSE)
+  yaml::write_yaml(cfg, path)
+  normalizePath(path, winslash = "/", mustWork = FALSE)
+}
+
+resolve_config_input <- function(
+  input_path,
+  repo_root = NULL,
+  output_root = NULL,
+  generated_config_name = "auto_config.yml"
+) {
+  resolved_input <- resolve_existing_input_path(input_path, repo_root = repo_root)
+
+  if (is_yaml_config_path(resolved_input)) {
+    return(list(
+      cfg = load_config(resolved_input),
+      config_path = resolved_input,
+      input_mode = "config",
+      generated = FALSE
+    ))
+  }
+
+  if (is.null(output_root)) {
+    if (is.null(repo_root)) {
+      output_root <- file.path("outputs")
+    } else {
+      output_root <- file.path(repo_root, "outputs")
+    }
+  }
+
+  cfg <- build_config_from_farm_path(
+    farm_path = resolved_input,
+    output_root = output_root
+  )
+  config_path <- write_pipeline_config(
+    cfg = cfg,
+    path = file.path(cfg$output_dir, "reports", generated_config_name)
+  )
+
+  list(
+    cfg = cfg,
+    config_path = config_path,
+    input_mode = "farm",
+    generated = TRUE
+  )
 }

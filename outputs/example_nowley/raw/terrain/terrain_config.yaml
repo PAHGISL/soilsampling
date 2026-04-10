@@ -1,0 +1,19 @@
+coords:
+- 150.0813643
+- -31.3668247
+- 150.1440057
+- -31.3298162
+download_dir: /g/data/ym05/github/soilsampling/outputs/example_nowley/raw/terrain
+filename_prefix: terrain_elevation
+project_id: yiyu-research
+bands: elevation
+scale: 30
+out_format: tif
+auth_mode: browser
+crs: EPSG:4326
+cloud_mask:
+  enabled: no
+postprocess:
+  maskval_to_na: no
+  enforce_float32: yes
+image: USGS/SRTMGL1_003

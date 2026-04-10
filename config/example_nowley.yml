@@ -1,14 +1,14 @@
 farm_path: ../inst/example/nowley/Nowley.shp
 output_dir: ../outputs/example_nowley
-gee_project_id: demo-project
+gee_project_id: yiyu-research
 sample_count: 9
 cluster_count: 3
 buffer_distance_m: 30
 min_point_spacing_m: 20
-random_seed: 42
+random_seed: 13
 date_window:
-  start: 2024-01-01
-  end: 2024-12-31
+  start: 2025-01-01
+  end: 2025-12-31
 pca:
   variance_threshold: 0.9
   max_components: 6

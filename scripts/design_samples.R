@@ -4,9 +4,9 @@
 # Author: Yi Yu
 # Created: 2026-04-10
 # Last updated: 2026-04-10
-# Inputs: YAML config path, prepared analysis stack, farm polygon.
+# Inputs: Farm polygon path or YAML config path, prepared analysis stack.
 # Outputs: Cluster raster and serialized sampling design results.
-# Usage: Rscript scripts/design_samples.R config/example_nowley.yml
+# Usage: Rscript scripts/design_samples.R <farm_polygon_or_config.yml>
 # Dependencies: R packages jsonlite, terra
 
 source_repo_files <- function(repo_root) {
@@ -21,13 +21,17 @@ repo_root <- normalizePath(file.path(dirname(script_path), ".."), winslash = "/"
 
 args <- commandArgs(trailingOnly = TRUE)
 if (length(args) != 1) {
-  stop("Usage: Rscript scripts/design_samples.R <config.yml>", call. = FALSE)
+  stop("Usage: Rscript scripts/design_samples.R <farm_polygon_or_config.yml>", call. = FALSE)
 }
 
 source_repo_files(repo_root)
 
-config_path <- normalizePath(file.path(repo_root, args[[1]]), winslash = "/", mustWork = TRUE)
-cfg <- load_config(config_path)
+resolved_input <- resolve_config_input(args[[1]], repo_root = repo_root)
+cfg <- resolved_input$cfg
+if (resolved_input$generated) {
+  message("Generated config at ", resolved_input$config_path)
+}
+
 farm <- read_farm_polygon(cfg$farm_path)
 dirs <- initialise_run_dirs(cfg$output_dir)
 stack_path <- file.path(dirs$processed, "analysis_stack.tif")

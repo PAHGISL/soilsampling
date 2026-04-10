@@ -6,46 +6,13 @@
 
 ## Contents
 
-- [Repository structure](#repository-structure)
 - [Overview](#overview)
-- [Workflow](#workflow)
+- [Repository structure](#repository-structure)
 - [Configuration](#configuration)
+- [Workflow](#workflow)
 - [Outputs](#outputs)
 - [Testing](#testing)
 - [Current scope](#current-scope)
-
-## Repository structure
-
-The current repository layout is:
-
-```text
-soilsampling/
-├── R/                               Reusable pipeline modules
-│   ├── config.R                     Config defaults, parsing, and validation
-│   ├── covariates.R                 GEE covariate plans and download orchestration
-│   ├── gee_bridge.R                 R bridge to the Python Earth Engine downloader
-│   ├── io_spatial.R                 Farm polygon reading and validation
-│   ├── output_reports.R             Output writers and diagnostic reporting
-│   ├── pca_sampling.R               PCA, clustering, and sample selection logic
-│   └── stack_processing.R           Raster alignment, masking, and derived covariates
-├── config/
-│   └── example_nowley.yml           Example run configuration using the bundled Nowley polygon
-├── inst/
-│   └── example/nowley/              Example farm polygon assets
-├── python/
-│   ├── gee_downloader.py            Earth Engine download backend
-│   └── requirements-gee.txt         Python package requirements for the downloader
-├── scripts/
-│   ├── prepare_covariates.R         Stage 1: download and prepare the analysis stack
-│   ├── design_samples.R             Stage 2: run PCA and build the sample design
-│   └── run_pipeline.R               Convenience wrapper for the full workflow
-├── tests/
-│   ├── testthat/                    Unit tests and synthetic fixtures
-│   └── testthat.R                   Test runner
-├── DESCRIPTION                      Package-style metadata
-├── README.md                        Project overview and usage
-└── .Rprofile                        Repo-local R defaults
-```
 
 ## Overview
 
@@ -59,41 +26,74 @@ soilsampling/
 
 The repository is R-first, with Python limited to the Earth Engine download backend.
 
-## Workflow
+## Repository structure
 
-The standard workflow has two explicit stages plus a wrapper:
+The current repository layout is:
 
-1. `scripts/prepare_covariates.R`
-   Reads the farm polygon, builds the requested GEE covariate plan, downloads source rasters, aligns them to a common grid, derives secondary layers, and writes `processed/analysis_stack.tif`.
-
-2. `scripts/design_samples.R`
-   Reads the prepared stack, drops constant covariates, runs PCA, performs `k-means` clustering in PCA space, applies buffer and spacing constraints, and writes sample outputs plus diagnostics.
-
-3. `scripts/run_pipeline.R`
-   Runs both stages end to end.
-
-For the bundled example, run from the repository root:
-
-```bash
-Rscript scripts/prepare_covariates.R config/example_nowley.yml
-Rscript scripts/design_samples.R config/example_nowley.yml
-```
-
-Or run the full pipeline in one step:
-
-```bash
-Rscript scripts/run_pipeline.R config/example_nowley.yml
+```text
+soilsampling/
+├── R/                               Reusable pipeline modules
+│   ├── config.R                     Config defaults, parsing, validation, and input resolution
+│   ├── covariates.R                 GEE covariate plans and download orchestration
+│   ├── gee_bridge.R                 R bridge to the Python Earth Engine downloader
+│   ├── io_spatial.R                 Farm polygon reading and validation
+│   ├── output_reports.R             Output writers and diagnostic reporting
+│   ├── pca_sampling.R               PCA, clustering, and sample selection logic
+│   └── stack_processing.R           Raster alignment, masking, and derived covariates
+├── config/
+│   └── example_nowley.yml           Example reusable run configuration using the bundled Nowley polygon
+├── inst/
+│   └── example/nowley/              Example farm polygon assets
+├── python/
+│   ├── gee_downloader.py            Earth Engine download backend
+│   └── requirements-gee.txt         Python package requirements for the downloader
+├── scripts/
+│   ├── build_config.R               Materialize a reusable config from a farm polygon path
+│   ├── prepare_covariates.R         Stage 1: download and prepare the analysis stack
+│   ├── design_samples.R             Stage 2: run PCA and build the sample design
+│   └── run_pipeline.R               Convenience wrapper for the full workflow
+├── tests/
+│   ├── testthat/                    Unit tests and synthetic fixtures
+│   └── testthat.R                   Test runner
+├── DESCRIPTION                      Package-style metadata
+├── README.md                        Project overview and usage
+└── .Rprofile                        Repo-local R defaults
 ```
 
 ## Configuration
 
-The example configuration file is:
+Configuration is now the main entrypoint to the workflow.
+
+Each pipeline script accepts either:
+
+- a farm polygon path, for example `inst/example/nowley/Nowley.shp`
+- a pre-written YAML config, for example `config/example_nowley.yml`
+
+The shapefile-first workflow is the recommended default because it requires less setup. When you pass a farm polygon path, the script automatically builds a run config from the repository defaults, writes that config to `reports/auto_config.yml` inside the run output directory, and then continues with the pipeline.
+
+For the bundled example, run from the repository root:
+
+```bash
+Rscript scripts/prepare_covariates.R inst/example/nowley/Nowley.shp
+Rscript scripts/design_samples.R inst/example/nowley/Nowley.shp
+Rscript scripts/run_pipeline.R inst/example/nowley/Nowley.shp
+```
+
+If you want to materialize the generated config without running the full pipeline, use:
+
+```bash
+Rscript scripts/build_config.R inst/example/nowley/Nowley.shp
+```
+
+The generated run config is different from the internal downloader request files written under `raw/*/*_config.yaml`. Users edit or reuse the run config. The downloader request YAML files are generated automatically by the pipeline and should not be edited manually.
+
+The example reusable config file is:
 
 ```text
 config/example_nowley.yml
 ```
 
-The main inputs are:
+Use a YAML config when you want to pin settings explicitly or rerun the exact same setup later. The main fields are:
 
 - `farm_path`: polygon file to sample within
 - `output_dir`: run directory for rasters, vectors, tables, and reports
@@ -112,6 +112,27 @@ inst/example/nowley/Nowley.shp
 ```
 
 Earth Engine authentication is handled through the R bridge and Python downloader. On first use, authentication may require an interactive browser step.
+
+## Workflow
+
+The standard workflow has two explicit stages plus a wrapper:
+
+1. `scripts/prepare_covariates.R`
+   Reads the farm polygon, builds the requested GEE covariate plan, downloads source rasters, aligns them to a common grid, derives secondary layers, and writes `processed/analysis_stack.tif`.
+
+2. `scripts/design_samples.R`
+   Reads the prepared stack, drops constant covariates, runs PCA, performs `k-means` clustering in PCA space, applies buffer and spacing constraints, and writes sample outputs plus diagnostics.
+
+3. `scripts/run_pipeline.R`
+   Runs both stages end to end.
+
+You can still use a YAML config directly:
+
+```bash
+Rscript scripts/prepare_covariates.R config/example_nowley.yml
+Rscript scripts/design_samples.R config/example_nowley.yml
+Rscript scripts/run_pipeline.R config/example_nowley.yml
+```
 
 ## Outputs
 

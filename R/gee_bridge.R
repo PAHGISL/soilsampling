@@ -5,6 +5,10 @@ gee_python_packages <- c(
   "python-dateutil"
 )
 
+legacy_reticulate_envname <- function() {
+  Sys.getenv("RETICULATE_PYTHON_ENV", unset = "r-soilsampling-gee")
+}
+
 install_r_packages <- function(packages) {
   options(repos = c(CRAN = "https://cloud.r-project.org"))
   missing_packages <- packages[!vapply(packages, requireNamespace, logical(1), quietly = TRUE)]
@@ -12,6 +16,44 @@ install_r_packages <- function(packages) {
     install.packages(missing_packages)
   }
   invisible(packages)
+}
+
+reticulate_has_py_require <- function() {
+  exists("py_require", envir = asNamespace("reticulate"), inherits = FALSE)
+}
+
+reticulate_py_require <- function(packages, action = "set") {
+  reticulate::py_require(packages = packages, action = action)
+}
+
+reticulate_py_install <- function(packages, envname, method = "auto", pip = TRUE) {
+  reticulate::py_install(
+    packages = packages,
+    envname = envname,
+    method = method,
+    pip = pip
+  )
+}
+
+ensure_reticulate_python_packages <- function(
+  packages = gee_python_packages,
+  has_py_require = reticulate_has_py_require,
+  py_require_fn = reticulate_py_require,
+  py_install_fn = reticulate_py_install
+) {
+  if (isTRUE(has_py_require())) {
+    py_require_fn(packages = packages, action = "set")
+    return("py_require")
+  }
+
+  py_install_fn(
+    packages = packages,
+    envname = legacy_reticulate_envname(),
+    method = "auto",
+    pip = TRUE
+  )
+
+  "py_install"
 }
 
 ensure_gee_python <- function(project_id = Sys.getenv("GEE_PROJECT_ID"), force_auth = FALSE) {
@@ -26,7 +68,7 @@ ensure_gee_python <- function(project_id = Sys.getenv("GEE_PROJECT_ID"), force_a
     GEE_PROJECT_ID = project_id
   )
 
-  reticulate::py_require(packages = gee_python_packages, action = "set")
+  ensure_reticulate_python_packages(gee_python_packages)
   ee <- reticulate::import("ee", delay_load = FALSE)
 
   if (isTRUE(force_auth)) {
