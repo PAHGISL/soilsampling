@@ -7,9 +7,9 @@
 ## Contents
 
 - [Overview](#overview)
-- [Repository structure](#repository-structure)
 - [Configuration](#configuration)
 - [Workflow](#workflow)
+- [Repository structure](#repository-structure)
 - [Outputs](#outputs)
 - [Testing](#testing)
 - [Current scope](#current-scope)
@@ -25,6 +25,101 @@
 - selects buffered sample points with a minimum spacing rule
 
 The repository is R-first, with Python limited to the Earth Engine download backend.
+
+## Configuration
+
+Configuration is now the main entrypoint to the workflow.
+
+Each pipeline script accepts either:
+
+- a farm polygon path, for example `inst/example/nowley/Nowley.shp`
+- a pre-written YAML config, for example `config/example_nowley.yml`
+
+The shapefile-first workflow is the recommended default because it requires less setup. When you pass a farm polygon path, the script automatically builds a run config from the repository defaults, writes that config to `reports/auto_config.yml` inside the run output directory, and then continues with the pipeline.
+
+If you use shapefile input for a download stage, you must also provide the Google Earth Engine project ID through the environment:
+
+```bash
+export GEE_PROJECT_ID="your-google-cloud-project-id"
+Rscript scripts/prepare_covariates.R path/to/farm.shp
+```
+
+Or as a one-line command:
+
+```bash
+GEE_PROJECT_ID="your-google-cloud-project-id" Rscript scripts/run_pipeline.R path/to/farm.shp
+```
+
+`scripts/design_samples.R` does not need `GEE_PROJECT_ID` if the prepared raster stack already exists. `scripts/prepare_covariates.R` and `scripts/run_pipeline.R` do need it because they trigger Earth Engine downloads.
+
+If you want to materialize the generated config without running the full pipeline, use:
+
+```bash
+Rscript scripts/build_config.R path/to/farm.shp
+```
+
+The generated run config is different from the internal downloader request files written under `raw/*/*_config.yaml`. Users edit or reuse the run config. The downloader request YAML files are generated automatically by the pipeline and should not be edited manually.
+
+If you want to pin settings explicitly, create or edit a YAML config and pass that file to the scripts. The repository includes this example:
+
+```text
+config/example_nowley.yml
+```
+
+Use a YAML config when you want to pin settings explicitly or rerun the exact same setup later. The main fields are:
+
+- `farm_path`: polygon file to sample within
+- `output_dir`: run directory for rasters, vectors, tables, and reports
+- `gee_project_id`: Google Cloud project ID for Earth Engine
+- `sample_count`: number of final sample points
+- `cluster_count`: number of PCA-space strata
+- `buffer_distance_m`: inward buffer used before candidate selection
+- `min_point_spacing_m`: minimum spacing between selected sample points
+- `random_seed`: seed for reproducibility
+- `date_window`: temporal window for imagery-based covariates
+
+Earth Engine authentication is handled through the R bridge and Python downloader. On first use, authentication may require an interactive browser step.
+
+## Workflow
+
+Choose one of these workflows.
+
+1. Stage-by-stage workflow.
+
+`scripts/prepare_covariates.R` reads the farm polygon, builds the requested GEE covariate plan, downloads source rasters, aligns them to a common grid, derives secondary layers, and writes `processed/analysis_stack.tif`.
+
+`scripts/design_samples.R` reads the prepared stack, drops constant covariates, runs PCA, performs `k-means` clustering in PCA space, applies buffer and spacing constraints, and writes sample outputs plus diagnostics.
+
+Example with shapefile input:
+
+```bash
+export GEE_PROJECT_ID="your-google-cloud-project-id"
+Rscript scripts/prepare_covariates.R path/to/farm.shp
+Rscript scripts/design_samples.R path/to/farm.shp
+```
+
+2. End-to-end workflow.
+
+`scripts/run_pipeline.R` runs both stages in one command.
+
+Example with shapefile input:
+
+```bash
+GEE_PROJECT_ID="your-google-cloud-project-id" Rscript scripts/run_pipeline.R path/to/farm.shp
+```
+
+In both cases, you can replace the shapefile path with a YAML config path:
+
+```bash
+Rscript scripts/prepare_covariates.R path/to/config.yml
+Rscript scripts/design_samples.R path/to/config.yml
+```
+
+or:
+
+```bash
+Rscript scripts/run_pipeline.R path/to/config.yml
+```
 
 ## Repository structure
 
@@ -58,80 +153,6 @@ soilsampling/
 ├── DESCRIPTION                      Package-style metadata
 ├── README.md                        Project overview and usage
 └── .Rprofile                        Repo-local R defaults
-```
-
-## Configuration
-
-Configuration is now the main entrypoint to the workflow.
-
-Each pipeline script accepts either:
-
-- a farm polygon path, for example `inst/example/nowley/Nowley.shp`
-- a pre-written YAML config, for example `config/example_nowley.yml`
-
-The shapefile-first workflow is the recommended default because it requires less setup. When you pass a farm polygon path, the script automatically builds a run config from the repository defaults, writes that config to `reports/auto_config.yml` inside the run output directory, and then continues with the pipeline.
-
-For the bundled example, run from the repository root:
-
-```bash
-Rscript scripts/prepare_covariates.R inst/example/nowley/Nowley.shp
-Rscript scripts/design_samples.R inst/example/nowley/Nowley.shp
-Rscript scripts/run_pipeline.R inst/example/nowley/Nowley.shp
-```
-
-If you want to materialize the generated config without running the full pipeline, use:
-
-```bash
-Rscript scripts/build_config.R inst/example/nowley/Nowley.shp
-```
-
-The generated run config is different from the internal downloader request files written under `raw/*/*_config.yaml`. Users edit or reuse the run config. The downloader request YAML files are generated automatically by the pipeline and should not be edited manually.
-
-The example reusable config file is:
-
-```text
-config/example_nowley.yml
-```
-
-Use a YAML config when you want to pin settings explicitly or rerun the exact same setup later. The main fields are:
-
-- `farm_path`: polygon file to sample within
-- `output_dir`: run directory for rasters, vectors, tables, and reports
-- `gee_project_id`: Google Cloud project ID for Earth Engine
-- `sample_count`: number of final sample points
-- `cluster_count`: number of PCA-space strata
-- `buffer_distance_m`: inward buffer used before candidate selection
-- `min_point_spacing_m`: minimum spacing between selected sample points
-- `random_seed`: seed for reproducibility
-- `date_window`: temporal window for imagery-based covariates
-
-The bundled example points to:
-
-```text
-inst/example/nowley/Nowley.shp
-```
-
-Earth Engine authentication is handled through the R bridge and Python downloader. On first use, authentication may require an interactive browser step.
-
-## Workflow
-
-The standard workflow has two explicit stages plus a wrapper:
-
-1. `scripts/prepare_covariates.R`
-   Reads the farm polygon, builds the requested GEE covariate plan, downloads source rasters, aligns them to a common grid, derives secondary layers, and writes `processed/analysis_stack.tif`.
-
-2. `scripts/design_samples.R`
-   Reads the prepared stack, drops constant covariates, runs PCA, performs `k-means` clustering in PCA space, applies buffer and spacing constraints, and writes sample outputs plus diagnostics.
-
-3. `scripts/run_pipeline.R`
-   Runs both stages end to end.
-
-You can still use a YAML config directly:
-
-```bash
-Rscript scripts/prepare_covariates.R config/example_nowley.yml
-Rscript scripts/design_samples.R config/example_nowley.yml
-Rscript scripts/run_pipeline.R config/example_nowley.yml
 ```
 
 ## Outputs
