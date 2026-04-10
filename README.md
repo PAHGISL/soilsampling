@@ -7,9 +7,9 @@
 ## Contents
 
 - [Overview](#overview)
+- [Repository structure](#repository-structure)
 - [Configuration](#configuration)
 - [Workflow](#workflow)
-- [Repository structure](#repository-structure)
 - [Outputs](#outputs)
 - [Testing](#testing)
 - [Current scope](#current-scope)
@@ -25,6 +25,40 @@
 - selects buffered sample points with a minimum spacing rule
 
 The repository is R-first, with Python limited to the Earth Engine download backend.
+
+## Repository structure
+
+The current repository layout is:
+
+```text
+soilsampling/
+├── R/                               Reusable pipeline modules
+│   ├── config.R                     Config defaults, parsing, validation, and input resolution
+│   ├── covariates.R                 GEE covariate plans and download orchestration
+│   ├── gee_bridge.R                 R bridge to the Python Earth Engine downloader
+│   ├── io_spatial.R                 Farm polygon reading and validation
+│   ├── output_reports.R             Output writers and diagnostic reporting
+│   ├── pca_sampling.R               PCA, clustering, and sample selection logic
+│   └── stack_processing.R           Raster alignment, masking, and derived covariates
+├── config/
+│   └── example_nowley.yml           Example reusable run configuration using the bundled Nowley polygon
+├── inst/
+│   └── example/nowley/              Example farm polygon assets
+├── python/
+│   ├── gee_downloader.py            Earth Engine download backend
+│   └── requirements-gee.txt         Python package requirements for the downloader
+├── scripts/
+│   ├── build_config.R               Materialize a reusable config from a farm polygon path
+│   ├── prepare_covariates.R         Stage 1: download and prepare the analysis stack
+│   ├── design_samples.R             Stage 2: run PCA and build the sample design
+│   └── run_pipeline.R               Convenience wrapper for the full workflow
+├── tests/
+│   ├── testthat/                    Unit tests and synthetic fixtures
+│   └── testthat.R                   Test runner
+├── DESCRIPTION                      Package-style metadata
+├── README.md                        Project overview and usage
+└── .Rprofile                        Repo-local R defaults
+```
 
 ## Configuration
 
@@ -119,40 +153,6 @@ or:
 
 ```bash
 Rscript scripts/run_pipeline.R path/to/config.yml
-```
-
-## Repository structure
-
-The current repository layout is:
-
-```text
-soilsampling/
-├── R/                               Reusable pipeline modules
-│   ├── config.R                     Config defaults, parsing, validation, and input resolution
-│   ├── covariates.R                 GEE covariate plans and download orchestration
-│   ├── gee_bridge.R                 R bridge to the Python Earth Engine downloader
-│   ├── io_spatial.R                 Farm polygon reading and validation
-│   ├── output_reports.R             Output writers and diagnostic reporting
-│   ├── pca_sampling.R               PCA, clustering, and sample selection logic
-│   └── stack_processing.R           Raster alignment, masking, and derived covariates
-├── config/
-│   └── example_nowley.yml           Example reusable run configuration using the bundled Nowley polygon
-├── inst/
-│   └── example/nowley/              Example farm polygon assets
-├── python/
-│   ├── gee_downloader.py            Earth Engine download backend
-│   └── requirements-gee.txt         Python package requirements for the downloader
-├── scripts/
-│   ├── build_config.R               Materialize a reusable config from a farm polygon path
-│   ├── prepare_covariates.R         Stage 1: download and prepare the analysis stack
-│   ├── design_samples.R             Stage 2: run PCA and build the sample design
-│   └── run_pipeline.R               Convenience wrapper for the full workflow
-├── tests/
-│   ├── testthat/                    Unit tests and synthetic fixtures
-│   └── testthat.R                   Test runner
-├── DESCRIPTION                      Package-style metadata
-├── README.md                        Project overview and usage
-└── .Rprofile                        Repo-local R defaults
 ```
 
 ## Outputs
