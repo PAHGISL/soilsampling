@@ -1,4 +1,4 @@
-# Soil Sampling Design Pipeline
+# Soil sampling design pipeline
 
 [![R 4.3.1](https://img.shields.io/badge/R-4.3.1-276DC3?style=flat&logo=R&logoColor=white)](https://www.r-project.org/)
 [![Google Earth Engine](https://img.shields.io/badge/Google%20Earth%20Engine-Workflow-34A853?style=flat&logo=googleearthengine&logoColor=white)](https://earthengine.google.com/)
