@@ -40,6 +40,46 @@ write_sample_outputs <- function(sample_points, dirs, farm_id) {
   )
 }
 
+design_diagnostic_palette <- function(cluster_values) {
+  cluster_values <- sort(unique(stats::na.omit(as.integer(cluster_values))))
+  if (length(cluster_values) == 0) {
+    return(stats::setNames(character(0), character(0)))
+  }
+
+  light_palette <- c(
+    "#DCEAF7",
+    "#F9E6D2",
+    "#DDEFD9",
+    "#EEE1F8",
+    "#F8DCE5",
+    "#FFF1C9",
+    "#DCEEEF"
+  )
+  cluster_cols <- if (length(cluster_values) <= length(light_palette)) {
+    light_palette[seq_along(cluster_values)]
+  } else {
+    grDevices::hcl.colors(length(cluster_values), palette = "Pastel 1")
+  }
+
+  stats::setNames(cluster_cols, cluster_values)
+}
+
+design_diagnostic_point_fill <- function(sample_table, cluster_lookup) {
+  fills <- rep("#FFFFFF", nrow(sample_table))
+  if (!("cluster" %in% names(sample_table)) || length(cluster_lookup) == 0) {
+    return(fills)
+  }
+
+  matched_cols <- unname(cluster_lookup[as.character(sample_table$cluster)])
+  fills[!is.na(matched_cols)] <- matched_cols[!is.na(matched_cols)]
+  fills
+}
+
+design_diagnostic_title <- function(farm_id) {
+  farm_label <- gsub("[_-]+", " ", farm_id)
+  sprintf("%s Cluster Map With Sample Overlay", tools::toTitleCase(farm_label))
+}
+
 write_design_outputs <- function(design, dirs, farm_id) {
   sample_paths <- write_sample_outputs(design$samples, dirs, farm_id)
   cluster_raster_path <- file.path(dirs$processed, "cluster_map.tif")
@@ -53,16 +93,64 @@ write_design_outputs <- function(design, dirs, farm_id) {
   names(cluster_summary) <- c("cluster", "n_samples")
   utils::write.csv(cluster_summary, cluster_summary_path, row.names = FALSE)
 
-  grDevices::png(diagnostic_path, width = 1600, height = 1200, res = 200, family = "Arial")
+  cluster_values <- sort(unique(stats::na.omit(as.integer(terra::values(design$cluster_raster)[, 1]))))
+  cluster_lookup <- design_diagnostic_palette(cluster_values)
+  cluster_cols <- unname(cluster_lookup)
+  sample_table <- terra::as.data.frame(design$samples)
+  sample_coords <- terra::crds(design$samples)
+  point_fill <- design_diagnostic_point_fill(sample_table, cluster_lookup)
+
+  grDevices::png(diagnostic_path, width = 1800, height = 1400, res = 200, family = "Arial")
   old_par <- graphics::par(no.readonly = TRUE)
   on.exit({
     graphics::par(old_par)
     grDevices::dev.off()
   }, add = TRUE)
-  graphics::par(family = "Arial")
-  terra::plot(design$cluster_raster, main = "Cluster Map And Sample Points")
-  sample_coords <- terra::crds(design$samples)
-  graphics::points(sample_coords[, 1], sample_coords[, 2], pch = 16, col = "black")
+  graphics::par(mar = c(4.5, 4.5, 4, 8), xpd = NA, family = "Arial")
+  terra::plot(
+    design$cluster_raster,
+    type = "classes",
+    col = cluster_cols,
+    main = design_diagnostic_title(farm_id),
+    axes = TRUE,
+    box = FALSE,
+    legend = FALSE
+  )
+  graphics::points(
+    sample_coords[, 1],
+    sample_coords[, 2],
+    pch = 21,
+    bg = point_fill,
+    col = "black",
+    cex = 1.2,
+    lwd = 0.8
+  )
+  if ("sample_id" %in% names(sample_table)) {
+    graphics::text(
+      sample_coords[, 1],
+      sample_coords[, 2],
+      labels = sample_table$sample_id,
+      pos = 3,
+      offset = 0.45,
+      cex = 0.65,
+      col = "black"
+    )
+  }
+  raster_extent <- as.vector(terra::ext(design$cluster_raster))
+  legend_x <- raster_extent[1] + 0.03 * (raster_extent[2] - raster_extent[1])
+  legend_y <- raster_extent[4] - 0.02 * (raster_extent[4] - raster_extent[3])
+  graphics::legend(
+    x = legend_x,
+    y = legend_y,
+    legend = paste("Cluster", cluster_values),
+    fill = cluster_cols,
+    border = NA,
+    bty = "n",
+    xjust = 0,
+    yjust = 1,
+    cex = 0.9,
+    title = "Raster classes"
+  )
 
   write_run_summary_json(
     summary = list(

@@ -9,6 +9,25 @@ build_example_sample_points <- function() {
   terra::vect(point_table, geom = c("x", "y"), crs = "EPSG:4326", keepgeom = TRUE)
 }
 
+testthat::test_that("design_diagnostic_palette follows the Nowley color order", {
+  palette <- design_diagnostic_palette(c(3L, 1L, 2L))
+
+  testthat::expect_equal(
+    unname(palette),
+    c("#DCEAF7", "#F9E6D2", "#DDEFD9")
+  )
+  testthat::expect_equal(names(palette), c("1", "2", "3"))
+})
+
+testthat::test_that("design_diagnostic_point_fill colors samples by cluster", {
+  sample_table <- data.frame(cluster = c(2L, 1L, NA))
+  cluster_lookup <- design_diagnostic_palette(c(1L, 2L))
+
+  fills <- design_diagnostic_point_fill(sample_table, cluster_lookup)
+
+  testthat::expect_equal(fills, c("#F9E6D2", "#DCEAF7", "#FFFFFF"))
+})
+
 testthat::test_that("write_sample_outputs creates csv and geopackage outputs", {
   sample_points <- build_example_sample_points()
   dirs <- initialise_run_dirs(tempfile("soilsampling-export-"))
