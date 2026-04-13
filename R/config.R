@@ -2,6 +2,7 @@ default_config <- function() {
   list(
     output_dir = file.path("outputs", "nowley"),
     gee_project_id = Sys.getenv("GEE_PROJECT_ID", unset = ""),
+    legacy_samples_path = NULL,
     sample_count = 9L,
     cluster_count = 3L,
     buffer_distance_m = 30,
@@ -75,9 +76,20 @@ normalise_config_paths <- function(cfg, config_dir = NULL) {
   if (!is.null(config_dir) && !grepl("^(/|[A-Za-z]:[/\\\\])", cfg$output_dir)) {
     cfg$output_dir <- file.path(config_dir, cfg$output_dir)
   }
+  if (!is.null(cfg$legacy_samples_path) &&
+      nzchar(as.character(cfg$legacy_samples_path)) &&
+      !is.null(config_dir) &&
+      !grepl("^(/|[A-Za-z]:[/\\\\])", cfg$legacy_samples_path)) {
+    cfg$legacy_samples_path <- file.path(config_dir, cfg$legacy_samples_path)
+  }
 
   cfg$farm_path <- normalizePath(cfg$farm_path, winslash = "/", mustWork = FALSE)
   cfg$output_dir <- normalizePath(cfg$output_dir, winslash = "/", mustWork = FALSE)
+  if (!is.null(cfg$legacy_samples_path) && nzchar(as.character(cfg$legacy_samples_path))) {
+    cfg$legacy_samples_path <- normalizePath(cfg$legacy_samples_path, winslash = "/", mustWork = FALSE)
+  } else {
+    cfg$legacy_samples_path <- NULL
+  }
 
   cfg
 }
@@ -98,6 +110,11 @@ coerce_config_types <- function(cfg) {
   cfg$pca$variance_threshold <- as.numeric(cfg$pca$variance_threshold)
   cfg$pca$max_components <- as.integer(cfg$pca$max_components)
   cfg$sentinel1$enabled <- isTRUE(cfg$sentinel1$enabled)
+  if (is.null(cfg$legacy_samples_path) || !nzchar(as.character(cfg$legacy_samples_path))) {
+    cfg$legacy_samples_path <- NULL
+  } else {
+    cfg$legacy_samples_path <- as.character(cfg$legacy_samples_path)
+  }
 
   cfg
 }
@@ -167,8 +184,20 @@ validate_config <- function(cfg) {
   if (!file.exists(cfg$farm_path)) {
     stop("farm_path does not exist: ", cfg$farm_path, call. = FALSE)
   }
+  if (!is.null(cfg$legacy_samples_path) &&
+      (!is.character(cfg$legacy_samples_path) || length(cfg$legacy_samples_path) != 1 || !nzchar(cfg$legacy_samples_path))) {
+    stop("legacy_samples_path must be a single file path when provided.", call. = FALSE)
+  }
+  if (!is.null(cfg$legacy_samples_path) && !file.exists(cfg$legacy_samples_path)) {
+    stop("legacy_samples_path does not exist: ", cfg$legacy_samples_path, call. = FALSE)
+  }
 
   dir.create(cfg$output_dir, recursive = TRUE, showWarnings = FALSE)
+  cfg$farm_path <- normalizePath(cfg$farm_path, winslash = "/", mustWork = TRUE)
+  cfg$output_dir <- normalizePath(cfg$output_dir, winslash = "/", mustWork = TRUE)
+  if (!is.null(cfg$legacy_samples_path)) {
+    cfg$legacy_samples_path <- normalizePath(cfg$legacy_samples_path, winslash = "/", mustWork = TRUE)
+  }
 
   cfg
 }

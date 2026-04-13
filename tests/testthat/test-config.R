@@ -62,3 +62,48 @@ testthat::test_that("validate_config rejects impossible sampling settings", {
 
   testthat::expect_error(validate_config(cfg), "sample_count")
 })
+
+testthat::test_that("load_config resolves optional legacy_samples_path relative to the config file", {
+  config_dir <- file.path(tempdir(), "soilsampling-config-with-legacy")
+  specs_dir <- file.path(tempdir(), "soilsampling-specs-with-legacy")
+  config_path <- file.path(config_dir, "contours.yml")
+  legacy_path <- file.path(specs_dir, "Contours_samples_legacy.csv")
+
+  unlink(config_dir, recursive = TRUE, force = TRUE)
+  unlink(specs_dir, recursive = TRUE, force = TRUE)
+  dir.create(config_dir, recursive = TRUE, showWarnings = FALSE)
+  dir.create(specs_dir, recursive = TRUE, showWarnings = FALSE)
+
+  utils::write.csv(
+    data.frame(sample_id = "USN09", x = 150.129292, y = -31.363595),
+    legacy_path,
+    row.names = FALSE
+  )
+
+  writeLines(
+    c(
+      paste0("farm_path: ", shQuote(file.path(repo_root, "inst", "example", "nowley", "Nowley.shp"))),
+      paste0("output_dir: ", shQuote(file.path(tempdir(), "soilsampling-output-with-legacy"))),
+      "gee_project_id: demo-project",
+      "legacy_samples_path: ../soilsampling-specs-with-legacy/Contours_samples_legacy.csv"
+    ),
+    con = config_path
+  )
+
+  cfg <- load_config(config_path)
+
+  testthat::expect_equal(
+    cfg$legacy_samples_path,
+    normalizePath(legacy_path, winslash = "/", mustWork = TRUE)
+  )
+})
+
+testthat::test_that("validate_config rejects missing legacy sample files", {
+  cfg <- default_config()
+  cfg$farm_path <- file.path(repo_root, "inst", "example", "nowley", "Nowley.shp")
+  cfg$output_dir <- tempfile("soilsampling-output-")
+  cfg$gee_project_id <- "demo-project"
+  cfg$legacy_samples_path <- file.path(tempdir(), "missing-legacy.csv")
+
+  testthat::expect_error(validate_config(cfg), "legacy_samples_path")
+})
