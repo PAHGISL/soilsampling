@@ -43,7 +43,7 @@ allocate_cluster_samples <- function(cluster_sizes, sample_count) {
   allocation
 }
 
-select_spaced_samples <- function(candidates, n, min_spacing_m, seed) {
+select_spaced_samples <- function(candidates, n, min_spacing_m, seed, occupied = NULL) {
   if (nrow(candidates) < n) {
     stop("Not enough candidate points to sample from.", call. = FALSE)
   }
@@ -51,13 +51,18 @@ select_spaced_samples <- function(candidates, n, min_spacing_m, seed) {
   set.seed(seed)
   order_idx <- sample(seq_len(nrow(candidates)))
   selected_idx <- integer(0)
+  occupied_x <- if (is.null(occupied) || nrow(occupied) == 0L) numeric(0) else occupied$x_proj
+  occupied_y <- if (is.null(occupied) || nrow(occupied) == 0L) numeric(0) else occupied$y_proj
 
   for (idx in order_idx) {
-    if (length(selected_idx) == 0L) {
+    all_x <- c(occupied_x, candidates$x_proj[selected_idx])
+    all_y <- c(occupied_y, candidates$y_proj[selected_idx])
+
+    if (length(all_x) == 0L) {
       selected_idx <- c(selected_idx, idx)
     } else {
-      dx <- candidates$x_proj[selected_idx] - candidates$x_proj[idx]
-      dy <- candidates$y_proj[selected_idx] - candidates$y_proj[idx]
+      dx <- all_x - candidates$x_proj[idx]
+      dy <- all_y - candidates$y_proj[idx]
       if (all(sqrt(dx ^ 2 + dy ^ 2) >= min_spacing_m)) {
         selected_idx <- c(selected_idx, idx)
       }
@@ -80,7 +85,7 @@ stack_to_feature_table <- function(stack) {
 }
 
 covariate_columns <- function(feature_table) {
-  excluded <- c("cell", "x", "y", "x_proj", "y_proj", "cluster", "sample_id")
+  excluded <- c("cell", "x", "y", "x_proj", "y_proj", "cluster", "sample_id", "sample_source", "point_id")
   setdiff(names(feature_table), excluded)
 }
 
@@ -106,6 +111,83 @@ farm_utm_crs <- function(farm) {
   }
 
   paste0("EPSG:", epsg)
+}
+
+project_occupied_points <- function(points, target_crs) {
+  if (is.null(points) || nrow(points) == 0L) {
+    return(data.frame(x_proj = numeric(0), y_proj = numeric(0)))
+  }
+
+  points_proj <- terra::project(points, target_crs)
+  coords <- terra::crds(points_proj)
+  data.frame(x_proj = coords[, 1], y_proj = coords[, 2])
+}
+
+validate_legacy_samples_within_farm <- function(legacy_points, farm) {
+  if (is.null(legacy_points) || nrow(legacy_points) == 0L) {
+    return(invisible(TRUE))
+  }
+
+  farm_for_points <- terra::project(farm, terra::crs(legacy_points))
+  inside <- legacy_points[farm_for_points]
+  if (nrow(inside) != nrow(legacy_points)) {
+    stop("Legacy samples must fall within the farm polygon.", call. = FALSE)
+  }
+
+  invisible(TRUE)
+}
+
+generate_sample_ids <- function(n, existing_ids = character()) {
+  ids <- character(0)
+  counter <- 1L
+
+  while (length(ids) < n) {
+    candidate <- sprintf("S%02d", counter)
+    if (!(candidate %in% existing_ids) && !(candidate %in% ids)) {
+      ids <- c(ids, candidate)
+    }
+    counter <- counter + 1L
+  }
+
+  ids
+}
+
+assign_clusters_to_scores <- function(scores, centers) {
+  if (is.null(dim(scores))) {
+    scores <- matrix(scores, nrow = 1)
+  }
+
+  distances <- vapply(
+    seq_len(nrow(centers)),
+    function(idx) {
+      rowSums((scores - matrix(centers[idx, ], nrow(scores), ncol(scores), byrow = TRUE)) ^ 2)
+    },
+    numeric(nrow(scores))
+  )
+  if (is.null(dim(distances))) {
+    distances <- matrix(distances, nrow = 1)
+  }
+
+  as.integer(max.col(-distances))
+}
+
+bind_sample_tables <- function(...) {
+  tables <- Filter(Negate(is.null), list(...))
+  if (length(tables) == 0L) {
+    return(data.frame())
+  }
+
+  all_cols <- unique(unlist(lapply(tables, names), use.names = FALSE))
+  aligned <- lapply(tables, function(tbl) {
+    missing_cols <- setdiff(all_cols, names(tbl))
+    for (col_name in missing_cols) {
+      tbl[[col_name]] <- NA
+    }
+
+    tbl[, all_cols, drop = FALSE]
+  })
+
+  do.call(rbind, aligned)
 }
 
 buffer_candidate_features <- function(feature_table, farm, buffer_distance_m, stack_crs) {
@@ -145,16 +227,57 @@ build_cluster_raster <- function(template, feature_table) {
   cluster_raster
 }
 
-sample_cluster_points <- function(candidate_features, allocation, cfg) {
+enrich_legacy_samples <- function(stack, legacy_samples, pca, feature_cols, selected_components, km, target_crs) {
+  if (is.null(legacy_samples) || nrow(legacy_samples$points) == 0L) {
+    return(NULL)
+  }
+
+  legacy_points <- terra::project(legacy_samples$points, terra::crs(stack))
+  extracted <- terra::extract(stack, legacy_points, ID = FALSE)
+  extracted <- extracted[, feature_cols, drop = FALSE]
+  if (any(!stats::complete.cases(extracted))) {
+    stop("Legacy samples fall outside valid analysis stack cells.", call. = FALSE)
+  }
+
+  legacy_proj <- terra::project(legacy_points, target_crs)
+  legacy_xy_proj <- terra::crds(legacy_proj)
+  scores <- stats::predict(pca, newdata = extracted)[, seq_len(selected_components), drop = FALSE]
+
+  legacy_table <- cbind(
+    data.frame(
+      cell = terra::cellFromXY(stack, legacy_samples$table[, c("x", "y"), drop = FALSE]),
+      x = legacy_samples$table$x,
+      y = legacy_samples$table$y,
+      stringsAsFactors = FALSE
+    ),
+    extracted
+  )
+  legacy_table$point_id <- NA_integer_
+  legacy_table$x_proj <- legacy_xy_proj[, 1]
+  legacy_table$y_proj <- legacy_xy_proj[, 2]
+  legacy_table$cluster <- assign_clusters_to_scores(scores, km$centers)
+  legacy_table$sample_id <- legacy_samples$table$sample_id
+  legacy_table$sample_source <- "legacy"
+
+  legacy_table
+}
+
+sample_cluster_points <- function(candidate_features, allocation, cfg, occupied = NULL) {
   split_candidates <- split(candidate_features, candidate_features$cluster)
   sampled <- vector("list", length(split_candidates))
+  occupied_coords <- occupied
 
   for (idx in seq_along(split_candidates)) {
     sampled[[idx]] <- select_spaced_samples(
       candidates = split_candidates[[idx]],
       n = allocation[[idx]],
       min_spacing_m = cfg$min_point_spacing_m,
-      seed = cfg$random_seed + idx
+      seed = cfg$random_seed + idx,
+      occupied = occupied_coords
+    )
+    occupied_coords <- rbind(
+      occupied_coords,
+      sampled[[idx]][, c("x_proj", "y_proj"), drop = FALSE]
     )
   }
 
@@ -162,6 +285,17 @@ sample_cluster_points <- function(candidate_features, allocation, cfg) {
 }
 
 design_samples_from_stack <- function(stack, farm, cfg) {
+  target_crs <- farm_utm_crs(farm)
+  legacy_samples <- if (!is.null(cfg$legacy_samples_path)) {
+    read_legacy_samples_csv(cfg$legacy_samples_path, target_crs = terra::crs(stack))
+  } else {
+    NULL
+  }
+  validate_legacy_samples_within_farm(
+    legacy_points = if (is.null(legacy_samples)) NULL else legacy_samples$points,
+    farm = farm
+  )
+
   feature_table <- stack_to_feature_table(stack)
   candidate_features <- buffer_candidate_features(
     feature_table = feature_table,
@@ -190,9 +324,33 @@ design_samples_from_stack <- function(stack, farm, cfg) {
 
   cluster_sizes <- as.integer(table(candidate_features$cluster))
   allocation <- allocate_cluster_samples(cluster_sizes, cfg$sample_count)
-  sampled <- sample_cluster_points(candidate_features, allocation, cfg)
-  sampled <- sampled[order(sampled$cluster, sampled$point_id), , drop = FALSE]
-  sampled$sample_id <- sprintf("S%02d", seq_len(nrow(sampled)))
+  sampled_new <- sample_cluster_points(
+    candidate_features = candidate_features,
+    allocation = allocation,
+    cfg = cfg,
+    occupied = project_occupied_points(
+      points = if (is.null(legacy_samples)) NULL else legacy_samples$points,
+      target_crs = target_crs
+    )
+  )
+  sampled_new <- sampled_new[order(sampled_new$cluster, sampled_new$point_id), , drop = FALSE]
+  sampled_new$sample_id <- generate_sample_ids(
+    nrow(sampled_new),
+    existing_ids = if (is.null(legacy_samples)) character(0) else legacy_samples$table$sample_id
+  )
+  sampled_new$sample_source <- "new"
+  sampled <- bind_sample_tables(
+    enrich_legacy_samples(
+      stack = stack,
+      legacy_samples = legacy_samples,
+      pca = pca,
+      feature_cols = feature_cols,
+      selected_components = selected_components,
+      km = km,
+      target_crs = target_crs
+    ),
+    sampled_new
+  )
 
   sample_points <- terra::vect(sampled, geom = c("x", "y"), crs = terra::crs(stack), keepgeom = TRUE)
   cluster_raster <- build_cluster_raster(stack, candidate_features)
