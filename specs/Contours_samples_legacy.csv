@@ -1,0 +1,5 @@
+sample_id,x,y,terrain_elevation,sentinel2_2025-01-03_1,sentinel2_2025-01-03_2,sentinel2_2025-01-03_3,sentinel2_2025-01-03_4,sentinel2_2025-01-03_5,sentinel2_2025-01-03_6,sentinel1_2025-01-02_1,sentinel1_2025-01-02_2,terrain_slope,aspect_sin,aspect_cos,point_id,x_proj,y_proj
+USN09,150.129292,-31.363595,legacy,,,,,,,,,,,,,,
+USN10,150.12448,-31.360293,legacy,,,,,,,,,,,,,,
+USN11,150.126036,-31.364861,legacy,,,,,,,,,,,,,,
+USN12,150.118345,-31.364402,legacy,,,,,,,,,,,,,,

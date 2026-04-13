@@ -100,17 +100,26 @@ If you want to pin settings explicitly, create or edit a YAML config and pass th
 config/example_nowley.yml
 ```
 
+and this legacy-aware contour example:
+
+```text
+config/contours_config.yml
+```
+
 Use a YAML config when you want to pin settings explicitly or rerun the exact same setup later. The main fields are:
 
 - `farm_path`: polygon file to sample within
 - `output_dir`: run directory for rasters, vectors, tables, and reports
 - `gee_project_id`: Google Cloud project ID for Earth Engine
-- `sample_count`: number of final sample points
+- `legacy_samples_path`: optional CSV of existing sample points to keep in the final delivered sample set
+- `sample_count`: number of newly generated sample points, or the full sample count when no legacy CSV is supplied
 - `cluster_count`: number of PCA-space strata
 - `buffer_distance_m`: inward buffer used before candidate selection
 - `min_point_spacing_m`: minimum spacing between selected sample points
 - `random_seed`: seed for reproducibility
 - `date_window`: temporal window for imagery-based covariates
+
+When `legacy_samples_path` is supplied, the workflow treats those rows as fixed existing locations. New points must satisfy `min_point_spacing_m` against both the legacy points and the newly selected points, and the final outputs contain both sets together with a `sample_source` field.
 
 Earth Engine authentication is handled through the R bridge and Python downloader. On first use, authentication may require an interactive browser step.
 

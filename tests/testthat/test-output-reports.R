@@ -3,7 +3,8 @@ build_example_sample_points <- function() {
     x = c(150.09, 150.11),
     y = c(-31.34, -31.35),
     cluster = c(1L, 2L),
-    sample_id = c("S01", "S02")
+    sample_id = c("USN09", "S01"),
+    sample_source = c("legacy", "new")
   )
 
   terra::vect(point_table, geom = c("x", "y"), crs = "EPSG:4326", keepgeom = TRUE)
@@ -36,6 +37,16 @@ testthat::test_that("write_sample_outputs creates csv and geopackage outputs", {
 
   testthat::expect_true(file.exists(outputs$csv))
   testthat::expect_true(file.exists(outputs$gpkg))
+})
+
+testthat::test_that("write_sample_outputs preserves sample_source in csv output", {
+  sample_points <- build_example_sample_points()
+  dirs <- initialise_run_dirs(tempfile("soilsampling-export-"))
+
+  outputs <- write_sample_outputs(sample_points, dirs, farm_id = "contours")
+  written <- utils::read.csv(outputs$csv, stringsAsFactors = FALSE)
+
+  testthat::expect_equal(written$sample_source, c("legacy", "new"))
 })
 
 testthat::test_that("write_design_outputs creates diagnostic and summary outputs", {

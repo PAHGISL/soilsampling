@@ -1,0 +1,17 @@
+farm_path: ../inst/contours/Nowley_field5.shp
+output_dir: ../outputs/nowley_field5
+gee_project_id: yiyu-research
+legacy_samples_path: ../specs/Contours_samples_legacy.csv
+sample_count: 8
+cluster_count: 3
+buffer_distance_m: 30.0
+min_point_spacing_m: 20.0
+random_seed: 17
+date_window:
+  start: '2025-01-01'
+  end: '2025-12-31'
+pca:
+  variance_threshold: 0.9
+  max_components: 6
+sentinel1:
+  enabled: yes
